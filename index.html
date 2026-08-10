@@ -100,7 +100,7 @@
     background:
       linear-gradient(var(--line) 1px, transparent 1px),
       linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size:20px 20px;
+    background-size:var(--grid-size,20px) var(--grid-size,20px);
     background-color:#fafbfd;
   }
   .front-label{
@@ -673,6 +673,7 @@ document.getElementById('btnGenGrid').addEventListener('click', async ()=>{
 
 document.getElementById('snapGrid').addEventListener('change', (e)=>{
   state.gridSize = Math.max(4, parseInt(e.target.value)||10);
+  updateGridVisual();
 });
 
 document.getElementById('btnAddDesk').addEventListener('click', ()=>{
@@ -770,6 +771,15 @@ function snapPosition(deskId, x, y){
     if(Math.abs(y-d.y) < thresh) sy = d.y;
   }
   return {x: sx, y: sy}; // logical coords — may be negative, that's fine
+}
+
+// Keeps the faint background grid on every board in sync with the current
+// snap-grid setting, so what you see is exactly where desks will snap.
+function updateGridVisual(){
+  const px = state.gridSize + 'px';
+  document.querySelectorAll('.board-inner').forEach(el=>{
+    el.style.setProperty('--grid-size', px);
+  });
 }
 
 // Computes the bounding box of all desks (logical coords) plus a margin.
@@ -1798,6 +1808,8 @@ document.getElementById('btnImport').addEventListener('change', async (e)=>{
     renderStudents();
     renderRules();
     renderRunBoard();
+    document.getElementById('snapGrid').value = state.gridSize;
+    updateGridVisual();
     saveRoster();
     await saveHistory();
     setStatus('백업 파일을 불러왔습니다.');
@@ -1819,6 +1831,7 @@ async function resetDesksOnly(){
   selectedDeskIds.clear();
   swapPick = null;
   document.getElementById('snapGrid').value = 10;
+  updateGridVisual();
   generateGrid(5, 6, 88, 68); // regenerates desks, renders board, saves roster
   renderStudents();
   renderRules();
@@ -1837,6 +1850,7 @@ async function init(){
   renderRunBoard();
   renderHistory();
   document.getElementById('snapGrid').value = state.gridSize;
+  updateGridVisual();
   document.getElementById('newStudentNumber').value = nextSuggestedNumber();
 }
 init();
