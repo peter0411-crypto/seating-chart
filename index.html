@@ -278,7 +278,7 @@
             <label style="font-size:12px;color:var(--sub);">간격Y<input type="number" id="gapY" value="68" style="width:55px;margin-left:4px;"></label>
           </div>
           <div class="row" style="margin-top:6px;">
-            <label style="font-size:12px;color:var(--sub);">스냅 격자<input type="number" id="snapGrid" value="20" style="width:55px;margin-left:4px;"></label>
+            <label style="font-size:12px;color:var(--sub);">스냅 격자<input type="number" id="snapGrid" value="10" style="width:55px;margin-left:4px;"></label>
           </div>
           <p style="font-size:11.5px;color:var(--sub);margin-top:10px;">
             행×열로 기본 배열을 만든 뒤, 책상을 자유롭게 드래그해 교실 구조에 맞게 배치하세요. 다른 책상과 가까이 놓으면 자동으로 줄이 맞춰집니다.
@@ -455,7 +455,7 @@ function lightenHex(hex, amt){
 }
 
 let state = {
-  gridSize: 20,
+  gridSize: 10,
   desks: [],       // {id,x,y,locked,gender,group}
   students: [],    // {id,name,gender,fixed,front,leader}
   separationPairs: [], // [a,b]
@@ -672,7 +672,7 @@ document.getElementById('btnGenGrid').addEventListener('click', async ()=>{
 });
 
 document.getElementById('snapGrid').addEventListener('change', (e)=>{
-  state.gridSize = Math.max(4, parseInt(e.target.value)||20);
+  state.gridSize = Math.max(4, parseInt(e.target.value)||10);
 });
 
 document.getElementById('btnAddDesk').addEventListener('click', ()=>{
@@ -1815,10 +1815,10 @@ async function resetDesksOnly(){
   pushUndo();
   state.students.forEach(s=>{ s.fixed = null; });
   state.assignment = {};
-  state.gridSize = 20;
+  state.gridSize = 10;
   selectedDeskIds.clear();
   swapPick = null;
-  document.getElementById('snapGrid').value = 20;
+  document.getElementById('snapGrid').value = 10;
   generateGrid(5, 6, 88, 68); // regenerates desks, renders board, saves roster
   renderStudents();
   renderRules();
