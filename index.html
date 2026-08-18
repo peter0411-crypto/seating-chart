@@ -407,6 +407,9 @@
 <div class="modal-overlay" id="deskPickerOverlay">
   <div class="modal-box" style="max-width:680px;">
     <div class="modal-msg" id="deskPickerTitle" style="font-weight:700;font-size:14px;"></div>
+    <label class="chk" style="display:block;margin:2px 0 8px;font-size:12.5px;">
+      <input type="checkbox" id="deskPickerMultiToggle"> 여러 좌석을 선택해서 그 중 무작위로 배정
+    </label>
     <div style="text-align:center;">
     <div class="board-wrap" id="deskPickerBoardWrap" style="max-height:420px;">
       <div class="board-inner" id="deskPickerBoardInner">
@@ -415,8 +418,8 @@
     </div>
     </div>
     <div class="legend" style="margin-top:8px;">
-      <span><i class="sw" style="border:2px solid var(--accent);background:#fff;"></i>이 학생의 고정석</span>
-      <span><i class="sw" style="background:#fdeaea;border-color:#e5a5a5;"></i>다른 학생 고정석(클릭 시 교체)</span>
+      <span><i class="sw" style="border:2px solid var(--accent);background:#fff;"></i>이 학생의 고정석 / 선택된 후보석</span>
+      <span><i class="sw" style="background:#fdeaea;border-color:#e5a5a5;"></i>다른 학생의 단독 고정석</span>
     </div>
     <div class="modal-actions" style="justify-content:space-between;">
       <button class="btn danger small" id="deskPickerClear">고정 해제</button>
@@ -689,7 +692,7 @@ document.getElementById('btnDelDesk').addEventListener('click', async ()=>{
   if(!ok) return;
   pushUndo();
   state.desks = state.desks.filter(d=>!selectedDeskIds.has(d.id));
-  state.students.forEach(s=>{ if(selectedDeskIds.has(s.fixed)) s.fixed=null; });
+  state.students.forEach(s=>{ setFixedPool(s, fixedPool(s).filter(id=>!selectedDeskIds.has(id))); });
   selectedDeskIds.clear();
   renderBoard(); saveRoster();
   setStatus('선택한 책상을 삭제했습니다.');
@@ -1036,6 +1039,22 @@ function updateSelInfo(){
 }
 
 /* ---------------- Students ---------------- */
+// A student's `fixed` field can be:
+//   null            — no fixed-seat constraint
+//   "deskId"        — locked to exactly that one seat
+//   ["id1","id2",…] — a pool of allowed seats; auto-assignment picks one at random from
+//                      whichever of these are still free when it's this student's turn
+function fixedPool(s){
+  if(s.fixed == null) return [];
+  return Array.isArray(s.fixed) ? s.fixed.slice() : [s.fixed];
+}
+function setFixedPool(s, ids){
+  const uniq = [...new Set(ids)];
+  if(uniq.length===0) s.fixed = null;
+  else if(uniq.length===1) s.fixed = uniq[0];
+  else s.fixed = uniq;
+}
+
 function nextSuggestedNumber(){
   const nums = state.students.map(s=>parseInt(s.number,10)).filter(n=>!isNaN(n));
   return nums.length ? Math.max(...nums)+1 : 1;
@@ -1110,7 +1129,9 @@ function renderStudents(){
         '<option value="M"'+(s.gender==='M'?' selected':'')+'>남</option>'+
         '<option value="F"'+(s.gender==='F'?' selected':'')+'>여</option>'+
       '</select></td>'+
-      '<td><button class="btn small'+(s.fixed?' toggled':'')+'" data-fixedbtn="'+s.id+'">'+(s.fixed?'📌 지정됨':'미지정')+'</button></td>'+
+      '<td><button class="btn small'+(fixedPool(s).length?' toggled':'')+'" data-fixedbtn="'+s.id+'">'+
+        (fixedPool(s).length>1 ? '🎲 '+fixedPool(s).length+'석 중 무작위' : fixedPool(s).length===1 ? '📌 지정됨' : '미지정')+
+        '</button></td>'+
       '<td style="text-align:center;"><input type="checkbox" data-id="'+s.id+'" data-f="front" '+(s.front?'checked':'')+'></td>'+
       '<td style="text-align:center;"><input type="checkbox" data-id="'+s.id+'" data-f="leader" '+(s.leader?'checked':'')+'></td>'+
       '<td><button class="btn small danger" data-del="'+s.id+'">삭제</button></td>';
@@ -1148,17 +1169,24 @@ function renderStudents(){
 
 /* ---------------- Fixed-seat desk picker (popup board) ---------------- */
 let deskPickerStudentId = null;
+let deskPickerMulti = false;
 
 function renderDeskPicker(studentId){
   const student = state.students.find(s=>s.id===studentId);
   if(!student) return;
-  document.getElementById('deskPickerTitle').textContent = student.name + ' 학생의 고정 좌석을 클릭해서 선택하세요';
+  const mine = fixedPool(student);
+  document.getElementById('deskPickerTitle').textContent = deskPickerMulti
+    ? student.name+' 학생이 배정될 수 있는 좌석을 여러 개 클릭해서 선택하세요 (자동 배치할 때마다 그 중 하나로 무작위 배정됩니다)'
+    : student.name+' 학생의 고정 좌석을 클릭해서 선택하세요';
   const inner = document.getElementById('deskPickerBoardInner');
   const m = fitBoardSize('deskPickerBoardInner', state.desks);
   inner.querySelectorAll('.desk').forEach(n=>n.remove());
   state.desks.forEach(d=>{
-    const occupant = state.students.find(s=>s.fixed===d.id);
-    const isMine = d.id === student.fixed;
+    const isMine = mine.includes(d.id);
+    // Only another student's *single* fixed seat blocks selection here — if that
+    // student also has a multi-seat pool including this desk, sharing is fine
+    // since only one of them will actually land on it at assignment time.
+    const occupant = state.students.find(s=> s.id!==studentId && fixedPool(s).length===1 && fixedPool(s)[0]===d.id);
     const el = document.createElement('div');
     let cls = 'desk';
     if(isMine) cls += ' selected';
@@ -1176,7 +1204,7 @@ function renderDeskPicker(studentId){
       strip.className = 'gender-strip ' + (d.gender==='M' ? 'male' : 'female');
       el.appendChild(strip);
     }
-    if(occupant && occupant.id !== studentId){
+    if(occupant){
       el.style.background = '#fdeaea';
       el.style.borderColor = '#e5a5a5';
       el.innerHTML = '<div class="name" style="font-size:10px;color:#a33;">'+escapeHtml(occupant.name)+'</div>';
@@ -1184,13 +1212,25 @@ function renderDeskPicker(studentId){
       el.innerHTML = '<div class="name" style="font-size:10.5px;">'+escapeHtml(student.name)+'</div>';
     }
     el.addEventListener('click', async ()=>{
-      if(occupant && occupant.id !== studentId){
+      if(occupant){
+        if(deskPickerMulti){
+          setStatus(occupant.name+' 학생의 단독 고정석이라 선택할 수 없습니다. 그 학생의 지정을 먼저 바꿔주세요.');
+          return;
+        }
         const ok = await showConfirm(occupant.name+' 학생이 이미 이 자리에 고정되어 있습니다.\n'+student.name+' 학생으로 바꿀까요?');
         if(!ok) return;
         occupant.fixed = null;
       }
-      student.fixed = d.id;
-      closeDeskPicker();
+      if(deskPickerMulti){
+        const cur = fixedPool(student);
+        const idx = cur.indexOf(d.id);
+        if(idx>=0) cur.splice(idx,1); else cur.push(d.id);
+        setFixedPool(student, cur);
+        renderDeskPicker(studentId);
+      } else {
+        setFixedPool(student, [d.id]);
+        closeDeskPicker();
+      }
       renderStudents();
       saveRoster();
     });
@@ -1201,6 +1241,9 @@ function renderDeskPicker(studentId){
 function openDeskPicker(studentId){
   if(state.desks.length === 0){ setStatus('먼저 ① 탭에서 책상을 배치하세요.'); return; }
   deskPickerStudentId = studentId;
+  const student = state.students.find(s=>s.id===studentId);
+  deskPickerMulti = student ? fixedPool(student).length > 1 : false;
+  document.getElementById('deskPickerMultiToggle').checked = deskPickerMulti;
   document.getElementById('deskPickerOverlay').style.display = 'flex';
   renderDeskPicker(studentId);
 }
@@ -1208,6 +1251,10 @@ function closeDeskPicker(){
   document.getElementById('deskPickerOverlay').style.display = 'none';
   deskPickerStudentId = null;
 }
+document.getElementById('deskPickerMultiToggle').addEventListener('change', (e)=>{
+  deskPickerMulti = e.target.checked;
+  if(deskPickerStudentId) renderDeskPicker(deskPickerStudentId);
+});
 document.getElementById('deskPickerCancel').addEventListener('click', closeDeskPicker);
 document.getElementById('deskPickerClear').addEventListener('click', ()=>{
   const student = state.students.find(s=>s.id===deskPickerStudentId);
@@ -1309,14 +1356,32 @@ function runAssignment(){
   const availableDesks = new Set(desks.map(d=>d.id));
 
   let pool = [...students];
-  // 1. fixed seats
-  pool = pool.filter(s=>{
-    if(s.fixed && availableDesks.has(s.fixed)){
-      assignment[s.fixed] = s.id; deskOfStudent[s.id] = s.fixed; availableDesks.delete(s.fixed);
-      return false;
+  // 1. fixed seats — students locked to exactly one seat go first (deterministic),
+  // then students with a fixed *pool* of allowed seats get one at random from
+  // whichever of those seats are still free. Anyone who loses out (seat already
+  // taken, or their whole pool is gone) falls back to normal random assignment.
+  const singleFixed = pool.filter(s => fixedPool(s).length === 1);
+  const poolFixed = pool.filter(s => fixedPool(s).length > 1);
+  const notFixed = pool.filter(s => fixedPool(s).length === 0);
+
+  singleFixed.forEach(s=>{
+    const deskId = fixedPool(s)[0];
+    if(availableDesks.has(deskId)){
+      assignment[deskId] = s.id; deskOfStudent[s.id] = deskId; availableDesks.delete(deskId);
+    } else {
+      notFixed.push(s);
     }
-    return true;
   });
+  shuffle(poolFixed).forEach(s=>{
+    const options = fixedPool(s).filter(id=>availableDesks.has(id));
+    if(options.length){
+      const deskId = options[Math.floor(Math.random()*options.length)];
+      assignment[deskId] = s.id; deskOfStudent[s.id] = deskId; availableDesks.delete(deskId);
+    } else {
+      notFixed.push(s);
+    }
+  });
+  pool = notFixed;
 
   const currentDeskList = ()=>desks.filter(d=>availableDesks.has(d.id));
   const candidatesFor = (student, list)=>{
