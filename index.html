@@ -103,6 +103,19 @@
     background-size:var(--grid-size,20px) var(--grid-size,20px);
     background-color:#fafbfd;
   }
+  #runCard:fullscreen, #runCard:-webkit-full-screen{
+    background:#fff;overflow:auto;padding:18px 22px;display:flex;flex-direction:column;
+  }
+  #runCard:fullscreen .toolbar, #runCard:-webkit-full-screen .toolbar{
+    flex-wrap:wrap;position:sticky;top:0;background:#fff;z-index:5;padding-bottom:8px;
+    border-bottom:1px solid var(--line);margin-bottom:10px;
+  }
+  #runCard:fullscreen #boardWrapRun, #runCard:-webkit-full-screen #boardWrapRun{
+    display:block;margin:0 auto;max-width:100%;max-height:none;overflow:visible;text-align:center;
+  }
+  #runCard:fullscreen #boardInnerRun, #runCard:-webkit-full-screen #boardInnerRun{
+    display:inline-block;margin:0 auto;
+  }
   .front-label{
     position:absolute;top:8px;left:8px;right:8px;text-align:center;
     font-size:11px;letter-spacing:3px;color:#fff;background:#2f3540;
@@ -358,7 +371,7 @@
   <section class="tab-panel" id="tab-run">
     <div class="layout-2col">
       <div>
-        <div class="card">
+        <div class="card" id="runCard">
           <div class="toolbar">
             <button class="btn primary" id="btnRun">🎲 자리 자동 배치</button>
             <button class="btn" id="btnUndoAssign">↶ 이전 배치로 되돌리기</button>
@@ -371,6 +384,8 @@
             <button class="btn" id="btnExport">💾 백업 파일로 내보내기</button>
             <button class="btn" id="btnImportTrigger">📂 백업 파일 불러오기</button>
             <input type="file" id="btnImport" accept="application/json" style="display:none;">
+            <div class="sep"></div>
+            <button class="btn" id="btnFullscreenRun">⛶ 전체화면으로 보기</button>
           </div>
           <div style="text-align:center;">
           <div class="board-wrap" id="boardWrapRun">
@@ -459,6 +474,7 @@ function lightenHex(hex, amt){
 
 let state = {
   gridSize: 10,
+  className: '',   // persisted 학급명 (rarely changes, so remembered across sessions)
   desks: [],       // {id,x,y,locked,gender,group}
   students: [],    // {id,name,gender,fixed,front,leader}
   separationPairs: [], // [a,b]
@@ -596,6 +612,7 @@ async function flushRosterSave(){
   rosterSaveInFlight = true;
   const payload = JSON.stringify({
     gridSize: state.gridSize,
+    className: state.className,
     desks: state.desks,
     students: state.students,
     separationPairs: state.separationPairs,
@@ -677,6 +694,11 @@ document.getElementById('btnGenGrid').addEventListener('click', async ()=>{
 document.getElementById('snapGrid').addEventListener('change', (e)=>{
   state.gridSize = Math.max(4, parseInt(e.target.value)||10);
   updateGridVisual();
+});
+
+document.getElementById('printClassName').addEventListener('input', (e)=>{
+  state.className = e.target.value;
+  saveRoster();
 });
 
 document.getElementById('btnAddDesk').addEventListener('click', ()=>{
@@ -1592,7 +1614,52 @@ function renderRunBoard(){
     if(swapPick===d.id) el.classList.add('swap-pick');
     inner.appendChild(el);
   });
+  if(isRunFullscreen()) updateRunFullscreenView();
 }
+
+/* ---------------- Fullscreen (④ 배치 생성 tab) ---------------- */
+function isRunFullscreen(){
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+function toggleRunFullscreen(){
+  const el = document.getElementById('runCard');
+  if(!isRunFullscreen()){
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if(req) req.call(el);
+    else setStatus('이 브라우저는 전체화면 기능을 지원하지 않습니다.');
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if(exit) exit.call(document);
+  }
+}
+function updateRunFullscreenView(){
+  const btn = document.getElementById('btnFullscreenRun');
+  const wrap = document.getElementById('boardWrapRun');
+  const inner = document.getElementById('boardInnerRun');
+  const inFs = isRunFullscreen();
+  if(btn) btn.textContent = inFs ? '⛶ 전체화면 종료' : '⛶ 전체화면으로 보기';
+  if(!wrap || !inner) return;
+  if(!inFs){
+    inner.style.transform = '';
+    wrap.style.height = '';
+    return;
+  }
+  requestAnimationFrame(()=>{
+    inner.style.transform = 'none'; // reset so offsetWidth/Height reflect the un-scaled size
+    const naturalW = inner.offsetWidth || 600;
+    const naturalH = inner.offsetHeight || 400;
+    const availW = wrap.clientWidth - 8;
+    const availH = window.innerHeight - wrap.getBoundingClientRect().top - 24;
+    const scale = Math.max(1, Math.min(availW/naturalW, availH/naturalH, 3));
+    inner.style.transformOrigin = 'top center';
+    inner.style.transform = 'scale('+scale+')';
+    wrap.style.height = (naturalH*scale)+'px';
+  });
+}
+document.getElementById('btnFullscreenRun').addEventListener('click', toggleRunFullscreen);
+document.addEventListener('fullscreenchange', updateRunFullscreenView);
+document.addEventListener('webkitfullscreenchange', updateRunFullscreenView);
+window.addEventListener('resize', ()=>{ if(isRunFullscreen()) updateRunFullscreenView(); });
 
 document.getElementById('btnRun').addEventListener('click', ()=>{
   assignmentUndoStack.push(JSON.stringify(state.assignment));
@@ -1648,8 +1715,32 @@ function renderHistory(){
     div.className = 'history-item';
     const count = Object.values(h.assignment||{}).filter(Boolean).length;
     div.innerHTML = '<div><div>'+escapeHtml(h.label)+'</div><div class="meta">'+h.date+' · 배정 '+count+'명</div></div>'+
-      '<button class="btn small danger" data-id="'+h.id+'">삭제</button>';
-    div.querySelector('button').addEventListener('click', async ()=>{
+      '<div style="display:flex;gap:6px;">'+
+        '<button class="btn small" data-loadid="'+h.id+'">불러오기</button>'+
+        '<button class="btn small danger" data-id="'+h.id+'">삭제</button>'+
+      '</div>';
+    div.querySelector('[data-loadid]').addEventListener('click', async ()=>{
+      const validDeskIds = new Set(state.desks.map(d=>d.id));
+      const validStudentIds = new Set(state.students.map(s=>s.id));
+      const restored = {};
+      let skipped = 0;
+      Object.entries(h.assignment||{}).forEach(([deskId, sid])=>{
+        if(validDeskIds.has(deskId) && validStudentIds.has(sid)) restored[deskId] = sid;
+        else skipped++;
+      });
+      const warn = skipped>0 ? '\n(그중 '+skipped+'자리는 지금은 없는 책상·학생이라 제외됩니다.)' : '';
+      const ok = await showConfirm('"'+h.label+'" 배치를 불러올까요? 현재 화면의 배치가 그걸로 바뀝니다.'+warn);
+      if(!ok) return;
+      assignmentUndoStack.push(JSON.stringify(state.assignment));
+      if(assignmentUndoStack.length > ASSIGNMENT_UNDO_LIMIT) assignmentUndoStack.shift();
+      state.assignment = restored;
+      renderRunBoard();
+      saveRoster();
+      const runTabBtn = document.querySelector('nav.tabs button[data-tab="run"]');
+      if(runTabBtn) runTabBtn.click();
+      setStatus('"'+h.label+'" 배치를 불러왔습니다.');
+    });
+    div.querySelector('[data-id]').addEventListener('click', async ()=>{
       history = history.filter(x=>x.id!==h.id);
       await saveHistory();
       renderHistory();
@@ -1832,6 +1923,7 @@ document.getElementById('btnExport').addEventListener('click', ()=>{
     exportedAt: new Date().toISOString(),
     roster: {
       gridSize: state.gridSize,
+      className: state.className,
       desks: state.desks,
       students: state.students,
       separationPairs: state.separationPairs,
@@ -1875,6 +1967,7 @@ document.getElementById('btnImport').addEventListener('change', async (e)=>{
     renderRunBoard();
     document.getElementById('snapGrid').value = state.gridSize;
     updateGridVisual();
+    document.getElementById('printClassName').value = state.className || '';
     saveRoster();
     await saveHistory();
     setStatus('백업 파일을 불러왔습니다.');
@@ -1916,6 +2009,7 @@ async function init(){
   renderHistory();
   document.getElementById('snapGrid').value = state.gridSize;
   updateGridVisual();
+  document.getElementById('printClassName').value = state.className || '';
   document.getElementById('newStudentNumber').value = nextSuggestedNumber();
 }
 init();
